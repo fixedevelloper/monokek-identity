@@ -1,0 +1,80 @@
+spring:
+  application:
+    name: monokek-identity
+
+  datasource:
+    # Same MySQL server/schema as monokek-spring (see the plan: the 6 FK references
+    # from devices/orders/order_status_histories/commissions/cash_sessions/activity_logs
+    # to users.id make a separate physical database too risky for a first extraction).
+    # A DIFFERENT, narrower-privileged DB user than monokek-spring's — see
+    # monokek-deploy/deploy/mysql/init for the grants.
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_DATABASE:monokek}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:identity_app}
+    password: ${DB_PASSWORD:identity_app}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Own history table: this service's migrations only ever create/alter the
+    # oauth2_* tables it owns, never users/roles/permissions/user_roles/
+    # user_permissions (those stay under monokek-spring's V*__ files/history).
+    table: flyway_schema_history_identity
+    baseline-on-migrate: true
+    # Default baselineVersion (1) would mark V1__oauth2_authorization_server_schema.sql
+    # itself as "already applied" purely because the shared schema already has other
+    # (monokek-spring-owned) tables in it — baselining at 0 instead means "nothing of
+    # ours has run yet", so V1 actually executes and creates the oauth2_* tables.
+    baseline-version: 0
+
+app:
+  identity:
+    # Public base URL clients see — must exactly match what's configured in
+    # monokek-deploy's Caddyfile for the /oauth2/**, /.well-known/** routes.
+    issuer: ${IDENTITY_ISSUER:http://localhost:8082}
+
+    # HttpActivityNotifier's target — see settings.web.InternalActivityLogController
+    # on the monokek-spring side.
+    monokek-spring-api-url: ${MONOKEK_SPRING_API_URL:http://localhost:8080}
+
+    signing-key:
+      # PEM-encoded PKCS8 private key / X509 public key, base64 body only (header/
+      # footer lines and whitespace are stripped either way). Both empty in dev =
+      # an ephemeral keypair is generated at boot (every token then becomes invalid
+      # on restart) — every real deployment sets these from files on a persisted
+      # volume, see monokek-deploy/docker-compose.yml.
+      private-key-pem: ${IDENTITY_RSA_PRIVATE_KEY_PEM:}
+      public-key-pem: ${IDENTITY_RSA_PUBLIC_KEY_PEM:}
+
+    clients:
+      pos:
+        # Used by the POS/Tauri/kitchen-display frontend for /api/login (LoginService
+        # bypasses HTTP client auth entirely, so this secret only matters for direct
+        # /oauth2/token callers — see ClientSeeder for why this isn't a secret-less client).
+        client-id: ${IDENTITY_POS_CLIENT_ID:monokek-pos}
+        client-secret: ${IDENTITY_POS_CLIENT_SECRET:change-me-pos-client-secret}
+      monokek-spring:
+        # client_credentials caller: monokek-spring -> GET /internal/users (UserDirectory HTTP client).
+        client-id: ${IDENTITY_MONOKEK_SPRING_CLIENT_ID:monokek-spring-service}
+        client-secret: ${IDENTITY_MONOKEK_SPRING_CLIENT_SECRET:change-me-monokek-spring-client-secret}
+      internal:
+        # client_credentials caller: monokek-identity -> POST /internal/activity-log on monokek-spring.
+        client-id: ${IDENTITY_INTERNAL_CLIENT_ID:monokek-identity-internal}
+        client-secret: ${IDENTITY_INTERNAL_CLIENT_SECRET:change-me-identity-internal-client-secret}
+
+server:
+  port: ${SERVER_PORT:8082}
+
+logging:
+  level:
+    org.springframework.security: INFO

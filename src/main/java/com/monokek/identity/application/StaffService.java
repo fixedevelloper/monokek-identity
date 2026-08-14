@@ -70,7 +70,14 @@ public class StaffService {
         if (request.name() != null) {
             staff.setName(request.name());
         }
-        if (request.email() != null) {
+        if (request.email() != null && !request.email().equals(staff.getEmail())) {
+            // Unlike create(), findByEmail is relied on elsewhere as a single-result lookup
+            // (LoginService, the password grant) — letting two active rows share an email
+            // turns every subsequent login attempt for either into an
+            // IncorrectResultSizeDataAccessException instead of a clean rejection here.
+            if (userRepository.existsByEmail(request.email())) {
+                throw ApiException.conflict("Cet email est déjà utilisé.");
+            }
             staff.setEmail(request.email());
         }
         if (request.phone() != null) {

@@ -2,11 +2,8 @@ package com.monokek.identity.security;
 
 import com.monokek.identity.domain.User;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.util.Collection;
-import java.util.LinkedHashSet;
-import java.util.Set;
 
 /**
  * The principal bound by {@code @AuthenticationPrincipal AuthenticatedUser} in
@@ -27,9 +24,6 @@ public class AuthenticatedUser {
     }
 
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        Set<GrantedAuthority> authorities = new LinkedHashSet<>();
-        user.getRoles().forEach(role -> authorities.add(new SimpleGrantedAuthority("ROLE_" + role.getName().toUpperCase())));
-        user.getAllPermissionNames().forEach(permission -> authorities.add(new SimpleGrantedAuthority(permission)));
-        return authorities;
+        return UserAuthorities.of(user);
     }
 }

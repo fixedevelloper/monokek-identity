@@ -53,12 +53,25 @@ public record StaffDto(
 
     public record PermissionOption(Long id, String name, String label) {
         public static PermissionOption from(Permission permission) {
-            String label = permission.getName()
-                    .replace("_", " ")
-                    .replace("create", "Créer")
-                    .replace("view", "Voir")
-                    .replace("manage", "Gérer");
-            return new PermissionOption(permission.getId(), permission.getName(), label);
+            // Permission names are always <verb>_<noun...> (manage_products, view_staff,
+            // create_orders — see V2__seed_rbac.sql) — translating word-by-word, not via
+            // chained substring replace() on the whole string, avoids corrupting a noun that
+            // happens to contain "view"/"create"/"manage" as a substring (e.g.
+            // manage_menu_preview -> "preview" or recreate_menu -> "recreate").
+            String[] words = permission.getName().split("_");
+            if (words.length > 0) {
+                words[0] = translateVerb(words[0]);
+            }
+            return new PermissionOption(permission.getId(), permission.getName(), String.join(" ", words));
+        }
+
+        private static String translateVerb(String verb) {
+            return switch (verb) {
+                case "create" -> "Créer";
+                case "view" -> "Voir";
+                case "manage" -> "Gérer";
+                default -> verb;
+            };
         }
     }
 }

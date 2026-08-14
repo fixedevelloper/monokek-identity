@@ -1,8 +1,11 @@
 package com.monokek.identity.security;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -24,6 +27,8 @@ import java.util.UUID;
  */
 @Component
 public class ClientSeeder implements ApplicationRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(ClientSeeder.class);
 
     private final RegisteredClientRepository registeredClientRepository;
     private final PasswordEncoder passwordEncoder;
@@ -61,8 +66,17 @@ public class ClientSeeder implements ApplicationRunner {
     }
 
     private void seedIfMissing(String clientId, java.util.function.Supplier<RegisteredClient> factory) {
-        if (registeredClientRepository.findByClientId(clientId) == null) {
+        if (registeredClientRepository.findByClientId(clientId) != null) {
+            return;
+        }
+        try {
             registeredClientRepository.save(factory.get());
+        } catch (DataIntegrityViolationException e) {
+            // Check-then-insert isn't atomic — a second instance starting at the same moment
+            // (e.g. a rolling deploy) can lose this race against oauth2_registered_client's
+            // client_id UNIQUE constraint. Losing it means the other instance already seeded
+            // the exact same client, which is the outcome we wanted anyway.
+            log.info("Client OAuth2 '{}' déjà enregistré par une autre instance au démarrage.", clientId);
         }
     }
 

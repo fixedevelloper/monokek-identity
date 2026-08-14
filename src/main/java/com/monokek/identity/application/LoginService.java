@@ -56,6 +56,14 @@ public class LoginService {
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new BadCredentialsException("Les identifiants sont incorrects.");
         }
+        // Every other auth path (PasswordGrantAuthenticationProvider, the resource-server
+        // converter, the refresh-token claims customizer) filters on isActive() — this JSON
+        // endpoint must too, or a deactivated staff member (isActive=false, no soft-delete —
+        // see StaffService#delete vs #update) could still log in and get a fully-privileged
+        // token here even though the same credentials are correctly rejected at /oauth2/token.
+        if (!user.isActive()) {
+            throw new BadCredentialsException("Les identifiants sont incorrects.");
+        }
 
         RegisteredClient posClient = registeredClientRepository.findByClientId(posClientId);
         TokenIssuer.IssuedTokens tokens = tokenIssuer.issue(user, posClient);

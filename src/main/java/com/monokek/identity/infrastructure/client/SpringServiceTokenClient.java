@@ -4,9 +4,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 
@@ -31,7 +33,10 @@ class SpringServiceTokenClient {
             @Value("${app.identity.issuer}") String issuer,
             @Value("${app.identity.clients.internal.client-id}") String clientId,
             @Value("${app.identity.clients.internal.client-secret}") String clientSecret) {
-        this.restClient = RestClient.builder().baseUrl(issuer + "/oauth2/token").build();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(3));
+        requestFactory.setReadTimeout(Duration.ofSeconds(5));
+        this.restClient = RestClient.builder().baseUrl(issuer + "/oauth2/token").requestFactory(requestFactory).build();
         this.clientId = clientId;
         this.clientSecret = clientSecret;
     }
@@ -49,6 +54,9 @@ class SpringServiceTokenClient {
                     .body("grant_type=client_credentials&scope=internal.activity-log.write")
                     .retrieve()
                     .body(Map.class);
+            if (response == null || response.get("access_token") == null || response.get("expires_in") == null) {
+                return null;
+            }
             String token = (String) response.get("access_token");
             int expiresIn = ((Number) response.get("expires_in")).intValue();
             cached = new CachedToken(token, now.plusSeconds(Math.max(expiresIn - 30, 0)));

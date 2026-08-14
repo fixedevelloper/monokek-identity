@@ -72,6 +72,16 @@ app:
         client-id: ${IDENTITY_INTERNAL_CLIENT_ID:monokek-identity-internal}
         client-secret: ${IDENTITY_INTERNAL_CLIENT_SECRET:change-me-identity-internal-client-secret}
 
+  cors:
+    # Comma-separated. Same origin set as monokek-spring's SecurityConfig — the
+    # browser-facing routes Caddy proxies here (/api/login, /api/logout, /api/me,
+    # /api/auth/**, /api/admin/staff/**) need their own CORS config, distinct from
+    # monokek-spring's: Spring MVC rejects any cross-origin request with no
+    # matching CorsConfigurationSource at all ("Invalid CORS request", 403),
+    # regardless of which origins would otherwise be allowed. Override with
+    # CORS_ALLOWED_ORIGINS for a production web deployment.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,tauri://localhost,http://tauri.localhost,https://tauri.localhost}
+
 server:
   port: ${SERVER_PORT:8082}
 

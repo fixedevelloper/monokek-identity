@@ -7,6 +7,7 @@ import com.monokek.identity.web.dto.StaffCreateRequest;
 import com.monokek.identity.web.dto.StaffDto;
 import com.monokek.identity.web.dto.StaffUpdateRequest;
 import com.monokek.identity.web.dto.UpdatePermissionsRequest;
+import com.monokek.identity.web.dto.UpdatePinRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -63,5 +64,12 @@ public class StaffController {
     public ApiResponse<Integer> updatePermissions(@PathVariable UUID uuid, @Valid @RequestBody UpdatePermissionsRequest request) {
         int count = staffService.updatePermissions(uuid, request.permissions());
         return ApiResponse.success(count, "Permissions mises à jour avec succès");
+    }
+
+    /** Admin-side PIN onboarding — see StaffService#setPin. */
+    @PutMapping("/{uuid}/pin")
+    public ApiResponse<Void> setPin(@PathVariable UUID uuid, @Valid @RequestBody UpdatePinRequest request) {
+        staffService.setPin(uuid, request.pin());
+        return ApiResponse.message("Code PIN défini avec succès");
     }
 }

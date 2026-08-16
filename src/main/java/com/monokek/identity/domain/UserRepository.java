@@ -24,4 +24,6 @@ public interface UserRepository extends Repository<User, Long> {
     boolean existsByEmail(String email);
 
     List<User> findByIdIn(Collection<Long> ids);
+
+    List<User> findByBranchIdAndActiveTrue(Long branchId);
 }

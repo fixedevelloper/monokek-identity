@@ -49,6 +49,20 @@ public class AuthController {
         return ApiResponse.message("Code PIN mis à jour avec succès.");
     }
 
+    /**
+     * Identifies which colleague in {@code branchId} owns {@code pin} —
+     * used by a shared POS terminal for self-service clock-in/out, where the
+     * person punching in isn't the terminal's own logged-in session. Only
+     * requires an authenticated caller (the terminal itself), not a specific
+     * role: any staff member operating the terminal can look up a colleague.
+     */
+    @PostMapping("/auth/lookup-pin")
+    public ApiResponse<UserSummary> lookupPin(@Valid @RequestBody PinLookupRequest request) {
+        var user = authService.lookupByPin(request.branchId(), request.pin());
+        String role = user.getRoles().stream().findFirst().map(r -> r.getName()).orElse(null);
+        return ApiResponse.success(new UserSummary(user.getId(), user.getName(), role), "Utilisateur identifié");
+    }
+
     @PostMapping("/auth/update-password")
     public ApiResponse<Void> updatePassword(
             @AuthenticationPrincipal AuthenticatedUser principal,

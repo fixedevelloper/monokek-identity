@@ -34,8 +34,38 @@ public class AuthService {
 
     @Transactional
     public void updatePin(User user, String pin) {
+        ensurePinIsUniqueInBranch(user.getBranchId(), pin, user.getId());
         user.setPinCode(passwordEncoder.encode(pin));
         userRepository.save(user);
+    }
+
+    /**
+     * Resolves which active user in {@code branchId} owns {@code pin} — the
+     * lookup a shared POS terminal needs for self-service clock-in/out
+     * (staffing.TimeClockController), where the person punching in isn't the
+     * terminal's own logged-in session. Bcrypt hashes are one-way, so this
+     * has to brute-force every active candidate in the branch — same
+     * approach as {@link #ensurePinIsUniqueInBranch}, which is exactly what
+     * keeps this lookup unambiguous (two colleagues in the same branch can
+     * never end up sharing a PIN).
+     */
+    @Transactional(readOnly = true)
+    public User lookupByPin(Long branchId, String pin) {
+        return userRepository.findByBranchIdAndActiveTrue(branchId).stream()
+                .filter(candidate -> candidate.getPinCode() != null && passwordEncoder.matches(pin, candidate.getPinCode()))
+                .findFirst()
+                .orElseThrow(() -> ApiException.badRequest("Code PIN invalide"));
+    }
+
+    /** No-op when {@code branchId} is null — collisions only matter within the pool a branch-scoped lookup actually searches. */
+    private void ensurePinIsUniqueInBranch(Long branchId, String pin, Long excludingUserId) {
+        if (branchId == null) return;
+        boolean collision = userRepository.findByBranchIdAndActiveTrue(branchId).stream()
+                .filter(candidate -> !candidate.getId().equals(excludingUserId))
+                .anyMatch(candidate -> candidate.getPinCode() != null && passwordEncoder.matches(pin, candidate.getPinCode()));
+        if (collision) {
+            throw ApiException.conflict("Ce code PIN est déjà utilisé par un autre membre de l'équipe.");
+        }
     }
 
     @Transactional

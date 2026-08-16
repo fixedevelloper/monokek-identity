@@ -27,18 +27,21 @@ public class StaffService {
     private final PermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
     private final ActivityNotifier activityNotifier;
+    private final AuthService authService;
 
     public StaffService(
             UserRepository userRepository,
             RoleRepository roleRepository,
             PermissionRepository permissionRepository,
             PasswordEncoder passwordEncoder,
-            ActivityNotifier activityNotifier) {
+            ActivityNotifier activityNotifier,
+            AuthService authService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.passwordEncoder = passwordEncoder;
         this.activityNotifier = activityNotifier;
+        this.authService = authService;
     }
 
     @Transactional(readOnly = true)
@@ -129,6 +132,20 @@ public class StaffService {
         userRepository.save(staff);
         activityNotifier.permissionsUpdated(staff.getId(), staff.getUuid(), permissions.stream().map(Permission::getName).sorted().toList());
         return permissions.size();
+    }
+
+    /**
+     * Admin-side PIN onboarding — until now the only way to set a
+     * {@code pinCode} was self-service via {@code /api/auth/update-pin}, no
+     * use for a brand-new employee who's never logged in yet. Reuses
+     * {@link AuthService#updatePin}, including its branch-scoped uniqueness
+     * check (the PIN self-identifies a colleague on a shared POS terminal —
+     * see {@code AuthController#lookupPin} — so two people in the same
+     * branch can never end up sharing one).
+     */
+    @Transactional
+    public void setPin(UUID uuid, String pin) {
+        authService.updatePin(findByUuid(uuid), pin);
     }
 
     User findByUuid(UUID uuid) {

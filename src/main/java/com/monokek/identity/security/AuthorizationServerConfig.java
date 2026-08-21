@@ -35,6 +35,7 @@ import org.springframework.security.oauth2.server.authorization.token.OAuth2Toke
 import org.springframework.security.config.Customizer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationConverter;
+import org.springframework.web.cors.CorsConfigurationSource;
 
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -60,7 +61,8 @@ public class AuthorizationServerConfig {
             HttpSecurity http,
             TokenIssuer tokenIssuer,
             UserRepository userRepository,
-            PasswordEncoder passwordEncoder) throws Exception {
+            PasswordEncoder passwordEncoder,
+            CorsConfigurationSource corsConfigurationSource) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer = new OAuth2AuthorizationServerConfigurer();
 
@@ -70,6 +72,10 @@ public class AuthorizationServerConfig {
 
         http
                 .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
+                // The POS app calls /oauth2/token directly (refresh_token grant) from the browser/
+                // webview — see DefaultSecurityConfig#corsConfigurationSource's javadoc for why this
+                // chain (separate from that one) needs its own .cors(...) too.
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 // No browser session/cookie involved anywhere in this service's grants
                 // (custom password grant, client_credentials) — every caller is an API
                 // client sending its own bearer/basic credentials, not a form post riding

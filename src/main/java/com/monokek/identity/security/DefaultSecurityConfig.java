@@ -86,7 +86,12 @@ public class DefaultSecurityConfig {
         response.getWriter().write(objectMapper.writeValueAsString(ApiResponse.error(message)));
     }
 
-    private CorsConfigurationSource corsConfigurationSource() {
+    /** Also used by {@link AuthorizationServerConfig}'s own filter chain (its own {@code @Bean}
+     * there would just be a second, drifting copy) — the POS app's direct browser/webview calls
+     * to {@code /oauth2/token} (refresh_token grant) need the exact same allowed-origins as every
+     * other endpoint, and that chain doesn't share this one's {@code .cors(...)} configuration. */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));

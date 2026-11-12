@@ -52,8 +52,7 @@ public class GraceRefreshAuthorizationService implements OAuth2AuthorizationServ
     @Override
     public void save(OAuth2Authorization authorization) {
         if (!grace.isZero() && !grace.isNegative()) {
-            OAuth2Authorization previous = delegate.findById(authorization.getId());
-            String oldValue = refreshValue(previous);
+            String oldValue = refreshValue(readable(authorization.getId()));
             String newValue = refreshValue(authorization);
             if (oldValue != null && newValue != null && !oldValue.equals(newValue)) {
                 Instant now = clock.instant();
@@ -89,12 +88,25 @@ public class GraceRefreshAuthorizationService implements OAuth2AuthorizationServ
             rotated.remove(token);
             return null;
         }
-        OAuth2Authorization current = delegate.findById(r.authorizationId());
+        OAuth2Authorization current = readable(r.authorizationId());
         if (current != null) {
             log.info("Refresh token deja tourne re-presente dans la fenetre de grace ({}s): reponse perdue cote client "
                     + "probable, authorization={}", grace.toSeconds(), r.authorizationId());
         }
         return current;
+    }
+
+    /**
+     * The stored row, or null when it does not exist OR cannot be deserialized (rows written by an older version carry types the
+     * allowlist refuses). A grace window is a convenience: it must never be able to fail the refresh it is only meant to rescue.
+     */
+    private OAuth2Authorization readable(String id) {
+        try {
+            return delegate.findById(id);
+        } catch (RuntimeException e) {
+            log.warn("Autorisation {} illisible, pas de fenetre de grace pour elle: {}", id, e.getMessage());
+            return null;
+        }
     }
 
     private static String refreshValue(OAuth2Authorization authorization) {

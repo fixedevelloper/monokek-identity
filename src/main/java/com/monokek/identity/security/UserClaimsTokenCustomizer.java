@@ -62,14 +62,21 @@ public class UserClaimsTokenCustomizer implements OAuth2TokenCustomizer<JwtEncod
         applyClaims(context, user);
     }
 
+    /**
+     * The claim values go into the JWT AND, on every refresh, into the stored {@code OAuth2Authorization} (Jackson, typed). Only types
+     * Spring Security's deserialization allowlist knows may be used: a {@code List.of()/.toList()} ({@code ImmutableCollections$ListN})
+     * or a {@code Long} are written fine but REFUSED when the row is read back, so the refresh token that follows could never be used
+     * again (the next refresh failed with 401 and the terminal was signed out). Hence {@code ArrayList} and {@code Integer}; in the JWT
+     * itself these are the same JSON values as before.
+     */
     private void applyClaims(JwtEncodingContext context, User user) {
         context.getClaims().claims(claims -> {
             claims.put("uuid", user.getUuid().toString());
             claims.put("name", user.getName());
-            claims.put("roles", user.getRoles().stream().map(role -> role.getName()).toList());
-            claims.put("permissions", user.getAllPermissionNames().stream().toList());
+            claims.put("roles", new java.util.ArrayList<>(user.getRoles().stream().map(role -> role.getName()).toList()));
+            claims.put("permissions", new java.util.ArrayList<>(user.getAllPermissionNames()));
             if (user.getBranchId() != null) {
-                claims.put("branch_id", user.getBranchId());
+                claims.put("branch_id", Math.toIntExact(user.getBranchId()));
             }
         });
     }

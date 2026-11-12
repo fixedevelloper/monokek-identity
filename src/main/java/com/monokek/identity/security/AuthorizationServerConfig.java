@@ -62,13 +62,14 @@ public class AuthorizationServerConfig {
             TokenIssuer tokenIssuer,
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
+            AttemptLimiter attemptLimiter,
             CorsConfigurationSource corsConfigurationSource) throws Exception {
 
         OAuth2AuthorizationServerConfigurer authorizationServerConfigurer = new OAuth2AuthorizationServerConfigurer();
 
         AuthenticationConverter passwordGrantConverter = new PasswordGrantAuthenticationConverter();
         PasswordGrantAuthenticationProvider passwordGrantProvider =
-                new PasswordGrantAuthenticationProvider(tokenIssuer, userRepository, passwordEncoder);
+                new PasswordGrantAuthenticationProvider(tokenIssuer, userRepository, passwordEncoder, attemptLimiter);
 
         http
                 .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
@@ -84,6 +85,7 @@ public class AuthorizationServerConfig {
                 .with(authorizationServerConfigurer, configurer -> configurer
                         .tokenEndpoint(tokenEndpoint -> tokenEndpoint
                                 .accessTokenRequestConverter(passwordGrantConverter)
+                                .errorResponseHandler(new TokenErrorLoggingHandler())
                                 .authenticationProvider(passwordGrantProvider))
                         .oidc(Customizer.withDefaults()))
                 // No browser-based flow (authorization_code) is registered, so there's no
@@ -99,8 +101,15 @@ public class AuthorizationServerConfig {
     }
 
     @Bean
-    public OAuth2AuthorizationService authorizationService(JdbcTemplate jdbcTemplate, RegisteredClientRepository registeredClientRepository) {
-        return new JdbcOAuth2AuthorizationService(jdbcTemplate, registeredClientRepository);
+    public OAuth2AuthorizationService authorizationService(
+            JdbcTemplate jdbcTemplate,
+            RegisteredClientRepository registeredClientRepository,
+            @Value("${app.identity.refresh-grace-seconds:60}") long refreshGraceSeconds) {
+        // Grace window: a refresh token that was just rotated stays usable for a short time, so a refresh
+        // response lost on the way (Wi-Fi drop, wake-up) does not turn into invalid_grant => logout.
+        return new GraceRefreshAuthorizationService(
+                new JdbcOAuth2AuthorizationService(jdbcTemplate, registeredClientRepository),
+                java.time.Duration.ofSeconds(refreshGraceSeconds));
     }
 
     @Bean

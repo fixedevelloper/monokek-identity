@@ -1,6 +1,7 @@
 package com.monokek.identity.application;
 
 import com.monokek.identity.common.ApiException;
+import com.monokek.identity.security.AttemptLimiter;
 import com.monokek.identity.domain.User;
 import com.monokek.identity.domain.UserRepository;
 import org.springframework.http.HttpStatus;
@@ -19,17 +20,23 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AttemptLimiter attemptLimiter;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, AttemptLimiter attemptLimiter) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.attemptLimiter = attemptLimiter;
     }
 
     @Transactional(readOnly = true)
     public void verifyPin(User user, String pin) {
+        String key = AttemptLimiter.userPinKey(user.getId());
+        attemptLimiter.check(key, AttemptLimiter.PIN_MAX_FAILURES, AttemptLimiter.PIN_WINDOW);
         if (user.getPinCode() == null || !passwordEncoder.matches(pin, user.getPinCode())) {
+            attemptLimiter.recordFailure(key, AttemptLimiter.PIN_WINDOW);
             throw new ApiException(HttpStatus.BAD_REQUEST, "Code PIN invalide");
         }
+        attemptLimiter.reset(key);
     }
 
     @Transactional
@@ -51,10 +58,19 @@ public class AuthService {
      */
     @Transactional(readOnly = true)
     public User lookupByPin(Long branchId, String pin) {
-        return userRepository.findByBranchIdAndActiveTrue(branchId).stream()
+        // Counted per branch, not per caller: the lookup tests a PIN against every colleague of the
+        // branch, so what an attacker brute-forces is the branch's whole PIN space.
+        String key = AttemptLimiter.branchPinKey(branchId);
+        attemptLimiter.check(key, AttemptLimiter.PIN_MAX_FAILURES, AttemptLimiter.PIN_WINDOW);
+        User found = userRepository.findByBranchIdAndActiveTrue(branchId).stream()
                 .filter(candidate -> candidate.getPinCode() != null && passwordEncoder.matches(pin, candidate.getPinCode()))
                 .findFirst()
-                .orElseThrow(() -> ApiException.badRequest("Code PIN invalide"));
+                .orElse(null);
+        if (found == null) {
+            attemptLimiter.recordFailure(key, AttemptLimiter.PIN_WINDOW);
+            throw ApiException.badRequest("Code PIN invalide");
+        }
+        return found;
     }
 
     /** No-op when {@code branchId} is null — collisions only matter within the pool a branch-scoped lookup actually searches. */
@@ -70,9 +86,14 @@ public class AuthService {
 
     @Transactional
     public void updatePassword(User user, String oldPassword, String newPassword, String confirmation) {
+        // A stolen access token must not be enough to guess the account's current password.
+        String key = AttemptLimiter.passwordChangeKey(user.getId());
+        attemptLimiter.check(key, AttemptLimiter.LOGIN_MAX_FAILURES, AttemptLimiter.LOGIN_WINDOW);
         if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+            attemptLimiter.recordFailure(key, AttemptLimiter.LOGIN_WINDOW);
             throw ApiException.badRequest("L'ancien mot de passe est incorrect.");
         }
+        attemptLimiter.reset(key);
         if (!newPassword.equals(confirmation)) {
             throw ApiException.badRequest("La confirmation du mot de passe ne correspond pas.");
         }

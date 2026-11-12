@@ -3,6 +3,7 @@ package com.monokek.identity.application;
 import com.monokek.identity.domain.Role;
 import com.monokek.identity.domain.User;
 import com.monokek.identity.domain.UserRepository;
+import com.monokek.identity.security.AttemptLimiter;
 import com.monokek.identity.security.TokenIssuer;
 import com.monokek.identity.web.dto.LoginRequest;
 import com.monokek.identity.web.dto.LoginResponse;
@@ -32,6 +33,7 @@ public class LoginService {
     private final TokenIssuer tokenIssuer;
     private final RegisteredClientRepository registeredClientRepository;
     private final ActivityNotifier activityNotifier;
+    private final AttemptLimiter attemptLimiter;
     private final String posClientId;
 
     public LoginService(
@@ -40,20 +42,25 @@ public class LoginService {
             TokenIssuer tokenIssuer,
             RegisteredClientRepository registeredClientRepository,
             ActivityNotifier activityNotifier,
+            AttemptLimiter attemptLimiter,
             @Value("${app.identity.clients.pos.client-id}") String posClientId) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenIssuer = tokenIssuer;
         this.registeredClientRepository = registeredClientRepository;
         this.activityNotifier = activityNotifier;
+        this.attemptLimiter = attemptLimiter;
         this.posClientId = posClientId;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = BadCredentialsException.class)
     public LoginResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new BadCredentialsException("Les identifiants sont incorrects."));
-        if (!passwordEncoder.matches(request.password(), user.getPassword())) {
+        String limiterKey = AttemptLimiter.loginKey(request.email());
+        attemptLimiter.check(limiterKey, AttemptLimiter.LOGIN_MAX_FAILURES, AttemptLimiter.LOGIN_WINDOW);
+
+        User user = userRepository.findByEmail(request.email()).orElse(null);
+        if (user == null || !passwordEncoder.matches(request.password(), user.getPassword())) {
+            attemptLimiter.recordFailure(limiterKey, AttemptLimiter.LOGIN_WINDOW);
             throw new BadCredentialsException("Les identifiants sont incorrects.");
         }
         // Every other auth path (PasswordGrantAuthenticationProvider, the resource-server
@@ -64,6 +71,7 @@ public class LoginService {
         if (!user.isActive()) {
             throw new BadCredentialsException("Les identifiants sont incorrects.");
         }
+        attemptLimiter.reset(limiterKey);
 
         RegisteredClient posClient = registeredClientRepository.findByClientId(posClientId);
         TokenIssuer.IssuedTokens tokens = tokenIssuer.issue(user, posClient);

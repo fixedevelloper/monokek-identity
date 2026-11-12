@@ -67,8 +67,20 @@ public class StaffService {
     }
 
     @Transactional
-    public StaffDto update(UUID uuid, StaffUpdateRequest request) {
+    public StaffDto update(UUID uuid, StaffUpdateRequest request, User requester) {
         User staff = findByUuid(uuid);
+
+        if (request.role() != null) {
+            if (staff.getId().equals(requester.getId())) {
+                throw ApiException.badRequest("Vous ne pouvez pas modifier votre propre rôle.");
+            }
+            boolean requesterIsAdmin = requester.getRoles().stream().anyMatch(r -> "admin".equalsIgnoreCase(r.getName()));
+            boolean targetsPrivilegedRole = "admin".equalsIgnoreCase(request.role()) || "super-admin".equalsIgnoreCase(request.role());
+            boolean targetIsAdmin = staff.getRoles().stream().anyMatch(r -> "admin".equalsIgnoreCase(r.getName()));
+            if ((targetsPrivilegedRole || targetIsAdmin) && !requesterIsAdmin) {
+                throw ApiException.forbidden("Seul un administrateur peut accorder ou retirer le rôle admin.");
+            }
+        }
 
         if (request.name() != null) {
             staff.setName(request.name());

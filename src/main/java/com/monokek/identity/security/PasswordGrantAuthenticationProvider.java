@@ -26,11 +26,14 @@ public class PasswordGrantAuthenticationProvider implements AuthenticationProvid
     private final TokenIssuer tokenIssuer;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AttemptLimiter attemptLimiter;
 
-    public PasswordGrantAuthenticationProvider(TokenIssuer tokenIssuer, UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public PasswordGrantAuthenticationProvider(
+            TokenIssuer tokenIssuer, UserRepository userRepository, PasswordEncoder passwordEncoder, AttemptLimiter attemptLimiter) {
         this.tokenIssuer = tokenIssuer;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.attemptLimiter = attemptLimiter;
     }
 
     @Override
@@ -43,11 +46,23 @@ public class PasswordGrantAuthenticationProvider implements AuthenticationProvid
             throw new OAuth2AuthenticationException(OAuth2ErrorCodes.UNAUTHORIZED_CLIENT);
         }
 
+        // Same counter as POST /api/login (LoginService): both are password guessing surfaces for the same account.
+        String limiterKey = AttemptLimiter.loginKey(grant.getUsername());
+        try {
+            attemptLimiter.check(limiterKey, AttemptLimiter.LOGIN_MAX_FAILURES, AttemptLimiter.LOGIN_WINDOW);
+        } catch (com.monokek.identity.common.ApiException locked) {
+            throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_GRANT, locked.getMessage(), null));
+        }
+
         User user = userRepository.findByEmail(grant.getUsername())
                 .filter(candidate -> passwordEncoder.matches(grant.getPassword(), candidate.getPassword()))
                 .filter(User::isActive)
-                .orElseThrow(() -> new OAuth2AuthenticationException(
-                        new OAuth2Error(OAuth2ErrorCodes.INVALID_GRANT, "Les identifiants sont incorrects.", null)));
+                .orElseThrow(() -> {
+                    attemptLimiter.recordFailure(limiterKey, AttemptLimiter.LOGIN_WINDOW);
+                    return new OAuth2AuthenticationException(
+                            new OAuth2Error(OAuth2ErrorCodes.INVALID_GRANT, "Les identifiants sont incorrects.", null));
+                });
+        attemptLimiter.reset(limiterKey);
 
         TokenIssuer.IssuedTokens tokens = tokenIssuer.issue(user, registeredClient);
         return new OAuth2AccessTokenAuthenticationToken(registeredClient, clientPrincipal, tokens.accessToken(), tokens.refreshToken());

@@ -43,8 +43,10 @@ public class StaffController {
 
     @RequestMapping(value = "/{uuid}", method = {RequestMethod.PUT, RequestMethod.PATCH})
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER') and (hasRole('ADMIN') or hasAuthority('manage_users'))")
-    public ApiResponse<StaffDto> update(@PathVariable UUID uuid, @RequestBody StaffUpdateRequest request) {
-        return ApiResponse.success(staffService.update(uuid, request), "Profil mis à jour");
+    public ApiResponse<StaffDto> update(
+            @PathVariable UUID uuid, @RequestBody StaffUpdateRequest request,
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+        return ApiResponse.success(staffService.update(uuid, request, principal.getUser()), "Profil mis à jour");
     }
 
     @DeleteMapping("/{uuid}")

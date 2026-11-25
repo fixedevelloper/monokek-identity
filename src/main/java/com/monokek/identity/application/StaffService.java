@@ -28,6 +28,7 @@ public class StaffService {
     private final PasswordEncoder passwordEncoder;
     private final ActivityNotifier activityNotifier;
     private final AuthService authService;
+    private final StaffAccessPolicy policy;
 
     public StaffService(
             UserRepository userRepository,
@@ -35,22 +36,28 @@ public class StaffService {
             PermissionRepository permissionRepository,
             PasswordEncoder passwordEncoder,
             ActivityNotifier activityNotifier,
-            AuthService authService) {
+            AuthService authService,
+            StaffAccessPolicy policy) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.passwordEncoder = passwordEncoder;
         this.activityNotifier = activityNotifier;
         this.authService = authService;
+        this.policy = policy;
     }
 
     @Transactional(readOnly = true)
-    public List<StaffDto> list() {
-        return userRepository.findAll().stream().map(StaffDto::from).toList();
+    public List<StaffDto> list(User requester) {
+        Long branch = policy.confinedBranch(requester);
+        return userRepository.findAll().stream()
+                .filter(u -> branch == null || branch.equals(u.getBranchId()))
+                .map(StaffDto::from).toList();
     }
 
     @Transactional
-    public StaffDto create(StaffCreateRequest request) {
+    public StaffDto create(StaffCreateRequest request, User requester) {
+        Long branchId = policy.checkCreate(requester, request.role(), request.branchId());
         if (userRepository.existsByEmail(request.email())) {
             throw ApiException.conflict("Cet email est déjà utilisé.");
         }
@@ -59,7 +66,7 @@ public class StaffService {
 
         User user = User.register(
                 request.name(), request.email(), request.phone(), passwordEncoder.encode(request.password()), role);
-        user.setBranchId(request.branchId());
+        user.setBranchId(branchId);
         User saved = userRepository.save(user);
 
         activityNotifier.staffCreated(saved.getId(), saved.getUuid(), saved.getName(), role.getName());
@@ -69,6 +76,8 @@ public class StaffService {
     @Transactional
     public StaffDto update(UUID uuid, StaffUpdateRequest request, User requester) {
         User staff = findByUuid(uuid);
+        policy.checkManage(requester, staff);
+        policy.checkBranchChange(requester, request.branchId(), request.clearBranchId());
 
         if (request.role() != null) {
             if (staff.getId().equals(requester.getId())) {
@@ -116,8 +125,10 @@ public class StaffService {
     }
 
     @Transactional
-    public void delete(UUID uuid, Long requesterId) {
+    public void delete(UUID uuid, User requester) {
+        Long requesterId = requester.getId();
         User staff = findByUuid(uuid);
+        policy.checkManage(requester, staff);
         if (staff.getId().equals(requesterId)) {
             throw ApiException.badRequest("Vous ne pouvez pas vous supprimer vous-même");
         }
@@ -137,8 +148,9 @@ public class StaffService {
     }
 
     @Transactional
-    public int updatePermissions(UUID uuid, List<String> permissionNames) {
+    public int updatePermissions(UUID uuid, List<String> permissionNames, User requester) {
         User staff = findByUuid(uuid);
+        policy.checkGrant(requester, staff, permissionNames);
         List<Permission> permissions = permissionRepository.findByNameIn(permissionNames);
         staff.updateDirectPermissions(new LinkedHashSet<>(permissions));
         userRepository.save(staff);
@@ -156,8 +168,10 @@ public class StaffService {
      * branch can never end up sharing one).
      */
     @Transactional
-    public void setPin(UUID uuid, String pin) {
-        authService.updatePin(findByUuid(uuid), pin);
+    public void setPin(UUID uuid, String pin, User requester) {
+        User staff = findByUuid(uuid);
+        policy.checkManage(requester, staff);
+        authService.updatePin(staff, pin);
     }
 
     User findByUuid(UUID uuid) {

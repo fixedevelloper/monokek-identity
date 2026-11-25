@@ -30,15 +30,16 @@ public class StaffController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER') and (hasRole('ADMIN') or hasAuthority('view_staff'))")
-    public ApiResponse<List<StaffDto>> index() {
-        return ApiResponse.success(staffService.list());
+    public ApiResponse<List<StaffDto>> index(@AuthenticationPrincipal AuthenticatedUser principal) {
+        return ApiResponse.success(staffService.list(principal.getUser()));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER') and (hasRole('ADMIN') or hasAuthority('manage_users'))")
-    public ApiResponse<StaffDto> store(@Valid @RequestBody StaffCreateRequest request) {
-        return ApiResponse.success(staffService.create(request), "Membre du staff créé avec succès");
+    public ApiResponse<StaffDto> store(@Valid @RequestBody StaffCreateRequest request,
+                                       @AuthenticationPrincipal AuthenticatedUser principal) {
+        return ApiResponse.success(staffService.create(request, principal.getUser()), "Membre du staff créé avec succès");
     }
 
     @RequestMapping(value = "/{uuid}", method = {RequestMethod.PUT, RequestMethod.PATCH})
@@ -52,7 +53,7 @@ public class StaffController {
     @DeleteMapping("/{uuid}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER') and (hasRole('ADMIN') or hasAuthority('manage_users'))")
     public ApiResponse<Void> destroy(@PathVariable UUID uuid, @AuthenticationPrincipal AuthenticatedUser principal) {
-        staffService.delete(uuid, principal.getUser().getId());
+        staffService.delete(uuid, principal.getUser());
         return ApiResponse.message("Accès révoqué avec succès");
     }
 
@@ -71,15 +72,18 @@ public class StaffController {
 
     @PutMapping("/{uuid}/permissions")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER') and (hasRole('ADMIN') or hasAuthority('edit_permissions'))")
-    public ApiResponse<Integer> updatePermissions(@PathVariable UUID uuid, @Valid @RequestBody UpdatePermissionsRequest request) {
-        int count = staffService.updatePermissions(uuid, request.permissions());
+    public ApiResponse<Integer> updatePermissions(@PathVariable UUID uuid, @Valid @RequestBody UpdatePermissionsRequest request,
+                                                @AuthenticationPrincipal AuthenticatedUser principal) {
+        int count = staffService.updatePermissions(uuid, request.permissions(), principal.getUser());
         return ApiResponse.success(count, "Permissions mises à jour avec succès");
     }
 
     /** Admin-side PIN onboarding — see StaffService#setPin. */
     @PutMapping("/{uuid}/pin")
-    public ApiResponse<Void> setPin(@PathVariable UUID uuid, @Valid @RequestBody UpdatePinRequest request) {
-        staffService.setPin(uuid, request.pin());
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER') and (hasRole('ADMIN') or hasAuthority('manage_users'))")
+    public ApiResponse<Void> setPin(@PathVariable UUID uuid, @Valid @RequestBody UpdatePinRequest request,
+                                    @AuthenticationPrincipal AuthenticatedUser principal) {
+        staffService.setPin(uuid, request.pin(), principal.getUser());
         return ApiResponse.message("Code PIN défini avec succès");
     }
 }

@@ -58,6 +58,7 @@ public class StaffService {
     @Transactional
     public StaffDto create(StaffCreateRequest request, User requester) {
         Long branchId = policy.checkCreate(requester, request.role(), request.branchId());
+        requireBranchForWarehouse(request.role(), branchId);
         if (userRepository.existsByEmail(request.email())) {
             throw ApiException.conflict("Cet email est déjà utilisé.");
         }
@@ -71,6 +72,16 @@ public class StaffService {
 
         activityNotifier.staffCreated(saved.getId(), saved.getUuid(), saved.getName(), role.getName());
         return StaffDto.from(saved);
+    }
+
+    /**
+     * A storekeeper acts on the stock of THEIR branch (the warehouse's). Without a branch the stock services read "no branch" as the
+     * owner and open every location to them, so the account must have one.
+     */
+    private static void requireBranchForWarehouse(String roleName, Long branchId) {
+        if ("warehouse".equalsIgnoreCase(roleName) && branchId == null) {
+            throw ApiException.badRequest("Un magasinier doit être rattaché à une succursale (celle de l'entrepôt).");
+        }
     }
 
     @Transactional
@@ -120,6 +131,7 @@ public class StaffService {
         } else if (request.branchId() != null) {
             staff.setBranchId(request.branchId());
         }
+        staff.getRoles().forEach(r -> requireBranchForWarehouse(r.getName(), staff.getBranchId()));
 
         return StaffDto.from(userRepository.save(staff));
     }

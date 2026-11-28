@@ -38,6 +38,8 @@ public class ClientSeeder implements ApplicationRunner {
     private final String springServiceClientSecret;
     private final String internalClientId;
     private final String internalClientSecret;
+    private final Duration posAccessTokenTtl;
+    private final Duration posRefreshTokenTtl;
 
     public ClientSeeder(
             RegisteredClientRepository registeredClientRepository,
@@ -47,7 +49,11 @@ public class ClientSeeder implements ApplicationRunner {
             @Value("${app.identity.clients.monokek-spring.client-id}") String springServiceClientId,
             @Value("${app.identity.clients.monokek-spring.client-secret}") String springServiceClientSecret,
             @Value("${app.identity.clients.internal.client-id}") String internalClientId,
-            @Value("${app.identity.clients.internal.client-secret}") String internalClientSecret) {
+            @Value("${app.identity.clients.internal.client-secret}") String internalClientSecret,
+            @Value("${app.identity.clients.pos.access-token-minutes:60}") long posAccessTokenMinutes,
+            @Value("${app.identity.clients.pos.refresh-token-days:90}") long posRefreshTokenDays) {
+        this.posAccessTokenTtl = Duration.ofMinutes(posAccessTokenMinutes);
+        this.posRefreshTokenTtl = Duration.ofDays(posRefreshTokenDays);
         this.registeredClientRepository = registeredClientRepository;
         this.passwordEncoder = passwordEncoder;
         this.posClientId = posClientId;
@@ -61,8 +67,35 @@ public class ClientSeeder implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         seedIfMissing(posClientId, this::posClient);
+        syncPosTokenSettings();
         seedIfMissing(springServiceClientId, () -> serviceClient(springServiceClientId, springServiceClientSecret, "internal.users.read"));
         seedIfMissing(internalClientId, () -> serviceClient(internalClientId, internalClientSecret, "internal.activity-log.write"));
+    }
+
+    /**
+     * seedIfMissing never touches an existing row, so a TTL change in config would silently never reach a
+     * deployment that already registered the POS client. Re-apply the configured token lifetimes at boot
+     * (only those; id, secret and grants are left alone). Sessions are sliding: every refresh issues a new
+     * refresh token with a full TTL, so a terminal used at least once per TTL never has to log in again.
+     */
+    private void syncPosTokenSettings() {
+        RegisteredClient existing = registeredClientRepository.findByClientId(posClientId);
+        if (existing == null) {
+            return;
+        }
+        TokenSettings current = existing.getTokenSettings();
+        if (posAccessTokenTtl.equals(current.getAccessTokenTimeToLive())
+                && posRefreshTokenTtl.equals(current.getRefreshTokenTimeToLive())) {
+            return;
+        }
+        registeredClientRepository.save(RegisteredClient.from(existing)
+                .tokenSettings(TokenSettings.withSettings(current.getSettings())
+                        .accessTokenTimeToLive(posAccessTokenTtl)
+                        .refreshTokenTimeToLive(posRefreshTokenTtl)
+                        .build())
+                .build());
+        log.info("Client OAuth2 '{}': durees de session mises a jour (access {}, refresh {}).",
+                posClientId, posAccessTokenTtl, posRefreshTokenTtl);
     }
 
     private void seedIfMissing(String clientId, java.util.function.Supplier<RegisteredClient> factory) {
@@ -99,8 +132,8 @@ public class ClientSeeder implements ApplicationRunner {
                 .authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
                 .clientSettings(ClientSettings.builder().requireAuthorizationConsent(false).requireProofKey(false).build())
                 .tokenSettings(TokenSettings.builder()
-                        .accessTokenTimeToLive(Duration.ofMinutes(30))
-                        .refreshTokenTimeToLive(Duration.ofDays(30))
+                        .accessTokenTimeToLive(posAccessTokenTtl)
+                        .refreshTokenTimeToLive(posRefreshTokenTtl)
                         .reuseRefreshTokens(false)
                         .build())
                 .build();

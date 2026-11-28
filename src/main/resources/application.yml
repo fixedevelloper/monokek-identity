@@ -63,6 +63,10 @@ app:
         # /oauth2/token callers — see ClientSeeder for why this isn't a secret-less client).
         client-id: ${IDENTITY_POS_CLIENT_ID:monokek-pos}
         client-secret: ${IDENTITY_POS_CLIENT_SECRET:change-me-pos-client-secret}
+        # Session length of terminals (caisse, serveur, cuisine). The refresh token is rotated on every refresh
+        # and gets a full TTL again, so the session only dies after this many days WITHOUT any use.
+        access-token-minutes: ${IDENTITY_POS_ACCESS_TOKEN_MINUTES:60}
+        refresh-token-days: ${IDENTITY_POS_REFRESH_TOKEN_DAYS:90}
       monokek-spring:
         # client_credentials caller: monokek-spring -> GET /internal/users (UserDirectory HTTP client).
         client-id: ${IDENTITY_MONOKEK_SPRING_CLIENT_ID:monokek-spring-service}
